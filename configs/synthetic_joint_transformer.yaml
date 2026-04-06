@@ -1,0 +1,48 @@
+experiment:
+  name: synthetic_joint_transformer
+  seed: 7
+  output_dir: outputs
+
+dataset:
+  source: synthetic
+  time_column: timestamp
+  context_length: 96
+  horizon: 48
+  split: [0.5, 0.25, 0.25]
+  stride: 4
+  normalize: true
+  max_train_samples: 192
+  max_eval_samples: 48
+  synthetic:
+    kind: sine_spike
+    length: 1200
+    n_features: 3
+    noise_std: 0.05
+
+model:
+  kind: joint_transformer
+  params:
+    d_model: 64
+    n_heads: 4
+    num_layers: 2
+    ff_dim: 128
+    dropout: 0.1
+    epochs: 10
+    batch_size: 32
+    lr: 0.001
+
+attack:
+  enabled: true
+  kind: dga
+  max_samples: 12
+  steps: 12
+  directions_per_step: 8
+  probe_scale: 0.01
+  step_size: 0.05
+  epsilon: 0.10
+  epsilon_relative_to: mean_abs_input
+  norm: linf
+  target_mode: gwn
+  target_source: input
+  loss: mae
+  seed: 7

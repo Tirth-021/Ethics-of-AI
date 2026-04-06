@@ -1,0 +1,277 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black
+}
+
+\title{Evaluating and Auditing Black-Box Adversarial Vulnerabilities in Transformer-Based Time Series Forecasting}
+\author{Author 1 \and Author 2 \and Author 3}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Large language model inspired forecasters have shown strong performance on time series tasks, but their adversarial robustness is still not well understood. This project studies that question through a reproducible black-box auditing tool and an architectural comparison between autoregressive and joint transformer forecasters. We take the AISTATS 2025 paper ``Adversarial Vulnerabilities in Large Language Models for Time Series Forecasting'' by Liu et al.\ as our reference point and extend it in two ways. First, we implement a modular robustness auditing pipeline that supports dataset preparation, model training, query-based attacks, and structured experiment reporting. Second, we test whether architectural changes alone improve robustness. Our experiments on ETTh1, Weather, and Exchange show that a low-budget targeted black-box attack has negligible effect in our local setting, but a stronger offline oracle-error black-box attack increases forecasting error across all three datasets. Contrary to our initial hypothesis, joint transformers are not consistently more robust than autoregressive transformers. In several cases they experience equal or larger relative degradation under attack. These results suggest that better clean forecasting accuracy does not automatically imply better adversarial robustness, and that architectural substitution alone is not a reliable defense.
+\end{abstract}
+
+\section{Introduction and Motivation}
+Time series forecasting is used in energy systems, finance, weather analysis, transportation, and many other high-stakes settings. In these applications, a model is useful only if it is both accurate and reliable. Recent work has shown that transformer and LLM-based forecasting systems can achieve strong predictive performance, especially when they are trained or adapted to capture long-range temporal dependencies. However, the success of these models raises a practical question: how stable are their forecasts under small but malicious changes to the historical input?
+
+The reference paper by Liu et al.\ studies this question for LLM-based time series forecasting. Their main claim is that black-box adversarial perturbations can degrade forecasting performance more severely than random Gaussian noise. They propose a query-based attack called Directional Gradient Approximation (DGA), and they use it to target models such as TimeGPT, LLMTime, and TimeLLM. Their work is important because it identifies a realistic threat model: the attacker cannot access gradients, internal model parameters, training data, or future labels, and can only query the forecasting system.
+
+Our project begins from that paper but does not aim to be a line-by-line reproduction. Instead, we treat it as a research starting point and ask a narrower question: can architectural changes alone improve robustness without the heavy cost of adversarial training? We focus on two local, reproducible transformer forecasters:
+\begin{itemize}
+  \item an autoregressive transformer that predicts the future step by step, and
+  \item a joint transformer that predicts the whole forecast horizon together.
+\end{itemize}
+
+This framing fits the practical concern raised by Liu et al. Their paper clearly shows a vulnerability problem, but its mitigation discussion remains largely conceptual. We therefore position our work as a critical extension that combines a documented auditing tool with an empirical robustness study.
+
+Our main contributions are:
+\begin{itemize}
+  \item We build a reproducible black-box robustness auditing tool for time series forecasting, with configuration-driven experiments, benchmark dataset support, attack modules, and automatic result summaries.
+  \item We implement a DGA-style query-based attack pipeline for local transformer forecasters and evaluate both a realistic targeted setting and a stronger offline oracle setting.
+  \item We show that low-budget targeted attacks can have negligible effect in our local setup, while stronger oracle-error attacks reveal meaningful vulnerability across ETTh1, Weather, and Exchange.
+  \item We find that joint transformers are not consistently more robust than autoregressive transformers, which challenges the idea that architectural substitution alone is an effective defense.
+\end{itemize}
+
+\section{Related Work}
+\subsection{Reference Paper}
+Liu et al.\ present one of the first focused studies of adversarial attacks on LLM-based time series forecasting. They argue that forecasting attacks differ from standard supervised adversarial attacks in two important ways. First, future ground truth values are not available at attack time, so label-based attacks risk information leakage. Second, commercial and large-scale LLM forecasters must be treated as black-box systems. To handle these restrictions, they propose a gradient-free, query-based method called DGA. Their attack pushes forecasts toward an anomalous target sequence based on Gaussian white noise (GWN), and they report stronger degradation than random noise of the same perturbation scale.
+
+Their experiments span multiple datasets and multiple model families, including TimeGPT, LLMTime variants, TimeLLM, and two non-LLM baselines. Their main conclusion is that LLM-based forecasters are vulnerable, and that robust defenses are needed. However, their mitigation section is preliminary. They note that adversarial training is expensive and suggest preprocessing and anomaly detection as future directions, but they do not provide a concrete defense mechanism.
+
+\subsection{Broader Context}
+More broadly, adversarial robustness in machine learning has been studied extensively in image classification, NLP, and classical deep learning. Forecasting is harder because the input is a structured temporal signal rather than a static example. Time series attacks must preserve sequence plausibility while still changing the forecast. Prior work on forecasting robustness has often assumed white-box access or focused on non-LLM models such as ARIMA, LSTMs, and standard transformers.
+
+On the forecasting side, modern transformer-based architectures include both autoregressive models and encoder-style joint prediction models. Autoregressive models generate one future step at a time and may amplify local perturbations across the prediction horizon. Joint models predict the whole horizon together and may behave differently under input tampering. This architectural difference motivates our study.
+
+\subsection{How Our Work Differs}
+Our project differs from the reference paper in three ways. First, we use local transformer baselines rather than external APIs such as GPT-4 or TimeGPT. This makes our experiments easier to reproduce and better suited to a course project. Second, we focus on architectural comparison rather than model-family comparison across commercial systems. Third, we explicitly separate two attack regimes:
+\begin{itemize}
+  \item a realistic low-budget targeted black-box attack that follows the spirit of the reference paper, and
+  \item an offline oracle-error black-box attack that serves as an upper-bound vulnerability analysis.
+\end{itemize}
+
+This distinction is important. The first setting is closer to deployment reality, while the second is more useful for stress-testing and understanding the limits of model robustness.
+
+\section{Methodology}
+\subsection{Forecasting Setup}
+Let $x \in \mathbb{R}^{T \times d}$ denote the historical input window, where $T$ is the context length and $d$ is the number of features. Let $f(x) \in \mathbb{R}^{\tau \times d}$ denote the forecast for the next $\tau$ time steps. In our experiments, $T=96$ and $\tau=48$.
+
+We compare two forecasting architectures:
+\begin{itemize}
+  \item \textbf{Autoregressive transformer.} This model encodes the historical context and then predicts the future one step at a time with a recurrent decoder. Each new prediction is conditioned on the previously predicted step.
+  \item \textbf{Joint transformer.} This model encodes the entire historical context and directly predicts the whole forecast horizon in one pass.
+\end{itemize}
+
+The architectural hypothesis behind our proposal was that joint prediction might resist adversarial manipulation better because it does not recursively roll forward its own outputs during decoding.
+
+\subsection{Attack Formulation}
+Given a clean input $x$, we seek a perturbed input $x+\delta$ such that
+\[
+\|\delta\|_p \le \epsilon,
+\]
+while changing the model output in a desired direction. Because the attacker does not have access to gradients, we approximate a useful update direction through black-box probing. For a small random probe direction $u$, we evaluate the attack objective $J(\cdot)$ on both $x$ and $x+\sigma u$, and estimate the directional derivative as
+\[
+g \approx \frac{J(x+\sigma u)-J(x)}{\sigma}u.
+\]
+We average this estimate over several random directions, then update the perturbation using the sign of the estimated gradient and project it back onto the chosen norm ball.
+
+\subsection{Two Attack Regimes}
+We evaluate two different attack regimes.
+
+\paragraph{1. Target-matching black-box attack.}
+This is the more realistic setting and is closest to Liu et al. The attacker cannot use future labels and instead tries to move the forecast toward a noise-like target sequence. In our implementation, the target is generated from Gaussian white noise using statistics of the input sequence. The objective is to minimize a discrepancy between the attacked forecast and the target sequence. This attack uses a small perturbation budget and few queries.
+
+\paragraph{2. Oracle-error black-box attack.}
+This is an offline upper-bound evaluation. The attacker still has black-box access in the sense that gradients and model internals are unavailable, but the attack objective uses the true future values during evaluation. In this setting, the goal is to maximize forecast error directly. This is not a deployment-realistic adversary, but it is scientifically useful because it reveals whether the model is vulnerable at all under a strong query-based black-box objective.
+
+\subsection{Tooling Contribution}
+To support these experiments, we built a structured auditing tool with the following components:
+\begin{itemize}
+  \item dataset loading, normalization, and sliding-window generation,
+  \item local model implementations for autoregressive and joint transformers,
+  \item a configurable DGA-style query-based attack engine,
+  \item benchmark download scripts for ETTh1, Weather, and Exchange,
+  \item automated experiment summaries in \texttt{summary.md}, \texttt{summary.json}, and per-sample CSV files.
+\end{itemize}
+
+This tooling is part of the project contribution. It turns the paper idea into a reproducible evaluation workflow rather than a one-off experiment.
+
+\section{Experimental Setup}
+\subsection{Datasets}
+We evaluate on three standard forecasting benchmarks also used in prior forecasting literature:
+\begin{itemize}
+  \item \textbf{ETTh1:} an electricity transformer temperature dataset with hourly measurements,
+  \item \textbf{Weather:} a multivariate weather benchmark with hourly meteorological variables,
+  \item \textbf{Exchange:} a multivariate exchange-rate dataset with eight currency series.
+\end{itemize}
+
+Following the reference paper, we use a 50\% / 25\% / 25\% chronological split for train, validation, and test. The historical input length is 96 and the forecast horizon is 48.
+
+\subsection{Models}
+Both transformer variants use the same high-level hyperparameter scale in our main runs: hidden size 64, 4 attention heads, 2 transformer layers, feed-forward size 128, dropout 0.1, and 15 training epochs. This keeps the comparison focused on architecture rather than scale.
+
+\subsection{Metrics}
+We report Mean Squared Error (MSE) and Mean Absolute Error (MAE) on clean test data and on attacked subsets. We also record a whiteness score based on lag-1 autocorrelation to measure whether the forecast becomes more noise-like. In the oracle setting, the attack objective value is simply the attacked subset MSE.
+
+\subsection{Attack Hyperparameters}
+For the low-budget target-matching attack, we used a small query budget and an $\ell_1$ constraint:
+\begin{itemize}
+  \item 8 attack steps,
+  \item 4 random directions per step,
+  \item probe scale 0.01,
+  \item step size 0.02,
+  \item $\epsilon=0.02$ scaled relative to the mean absolute input magnitude.
+\end{itemize}
+
+For the oracle-error attack, we used a stronger setting:
+\begin{itemize}
+  \item 20 attack steps,
+  \item 16 random directions per step,
+  \item probe scale 0.005,
+  \item step size 0.01,
+  \item $\ell_\infty$ constraint with $\epsilon=0.10$,
+  \item average query count of 361 per attacked sample.
+\end{itemize}
+
+\section{Results}
+\subsection{Low-Budget Target-Matching Attack}
+Our first finding is a negative result. In our local transformer setup, the low-budget targeted attack had negligible impact on forecasting error across all three datasets. On ETTh1, Weather, and Exchange, the attacked subset MSE and MAE were nearly identical to the clean subset metrics. This indicates that in our implementation, a small query budget combined with a small $\ell_1$ perturbation budget was not enough to materially damage forecasting accuracy.
+
+This is different from the strong vulnerability reported by Liu et al.\ for their LLM-based systems. We believe there are two reasonable explanations. First, our local transformer baselines are not identical to the large API-based systems studied in the reference paper. Second, our setting spreads a very small perturbation budget across high-dimensional multivariate input windows, which can make each per-coordinate perturbation too weak to substantially alter the forecast.
+
+Although this negative result was initially disappointing, it turned into a useful critical finding. It motivated us to distinguish between realistic weak attacks and stronger offline stress tests, rather than forcing a single attack narrative.
+
+\subsection{Oracle-Error Black-Box Attack}
+Once we switched to the stronger oracle-error black-box attack, vulnerability became clear. Table~\ref{tab:oracle} summarizes the attacked-subset results.
+
+\begin{table}[t]
+\centering
+\caption{Oracle-error black-box attack results on the attacked subset. Relative increase is computed with respect to clean attacked-subset MSE.}
+\label{tab:oracle}
+\begin{tabular}{llrrrr}
+\toprule
+Dataset & Model & Clean MSE & Attacked MSE & Clean MAE & Attacked MAE \\
+\midrule
+ETTh1 & Autoregressive & 1.0278 & 1.1243 & 0.7826 & 0.8102 \\
+ETTh1 & Joint & 0.9288 & 1.0567 & 0.7827 & 0.8424 \\
+Weather & Autoregressive & 0.1053 & 0.1612 & 0.2177 & 0.2850 \\
+Weather & Joint & 0.1461 & 0.2237 & 0.2805 & 0.3569 \\
+Exchange & Autoregressive & 8.2205 & 8.2544 & 2.4821 & 2.4855 \\
+Exchange & Joint & 10.8808 & 10.9779 & 2.8249 & 2.8413 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ETTh1 results show meaningful degradation for both models. The autoregressive transformer increases from 1.0278 to 1.1243 MSE, while the joint transformer increases from 0.9288 to 1.0567 MSE. In relative terms, the joint model suffers a larger increase. This is notable because the joint model also has better clean full-test MSE on ETTh1. Better clean accuracy does not translate into stronger robustness.
+
+The Weather dataset shows the strongest vulnerability. The autoregressive model increases from 0.1053 to 0.1612 MSE, and the joint model increases from 0.1461 to 0.2237 MSE. Both increases are about 53\% relative to their clean attacked-subset MSE. This is the clearest evidence in our experiments that the forecasting models are sensitive to black-box adversarial perturbations under a strong query-based objective.
+
+The Exchange dataset is different. The attack still increases error for both architectures, but the effect is much smaller. The autoregressive model moves from 8.2205 to 8.2544 MSE, and the joint model moves from 10.8808 to 10.9779 MSE. This suggests that adversarial vulnerability is highly dataset-dependent.
+
+\subsection{Architectural Comparison}
+Our original hypothesis was that joint transformers might be more robust than autoregressive transformers. The data does not support that claim.
+
+On ETTh1, the joint model starts with better clean MSE but suffers a larger relative degradation under attack. On Weather, both models are heavily affected, and the relative increase is almost identical. On Exchange, both models are only weakly affected, but the joint model again shows the larger relative increase. Across all three datasets, we do not observe a case in which the joint architecture is clearly and consistently more robust than the autoregressive architecture.
+
+This is the most important empirical conclusion of the project. Architectural substitution alone is not a reliable defense.
+
+\subsection{Clean Forecasting Performance}
+For completeness, Table~\ref{tab:clean} reports the clean full-test results from the oracle runs.
+
+\begin{table}[t]
+\centering
+\caption{Clean full-test performance for the two forecasting architectures.}
+\label{tab:clean}
+\begin{tabular}{llrr}
+\toprule
+Dataset & Model & MSE & MAE \\
+\midrule
+ETTh1 & Autoregressive & 1.0470 & 0.7988 \\
+ETTh1 & Joint & 0.9577 & 0.7692 \\
+Weather & Autoregressive & 0.1773 & 0.2891 \\
+Weather & Joint & 0.1804 & 0.2872 \\
+Exchange & Autoregressive & 5.7453 & 2.0837 \\
+Exchange & Joint & 7.9658 & 2.4026 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+These clean results are mixed. The joint model performs better on ETTh1, the two models are very close on Weather, and the autoregressive model performs better on Exchange. This further supports the idea that there is no simple architecture-level dominance.
+
+\section{Discussion and Limitations}
+\subsection{What We Learned}
+The main lesson from this project is that robustness conclusions depend strongly on the attack regime. In our local setting, the realistic low-budget target-matching attack is too weak to cause meaningful degradation. However, a stronger oracle-error black-box objective reveals clear vulnerability, especially on ETTh1 and Weather. This means that the question is not simply whether these models are robust or not. Instead, their apparent robustness depends on the attacker objective, the perturbation budget, the query budget, and the dataset.
+
+Another important lesson is that clean performance and robustness are not the same thing. The joint transformer sometimes produces better clean forecasts, but this does not make it more resilient to adversarial manipulation. In fact, on ETTh1 and Exchange, the joint model shows larger relative degradation under the oracle attack.
+
+\subsection{Limitations}
+Our study has several limitations.
+
+First, we do not directly reproduce the commercial or API-based models used in the reference paper. We work with local transformer baselines instead. This improves reproducibility but limits one-to-one comparison with Liu et al.
+
+Second, our strongest results come from the oracle-error setting. This is an offline vulnerability analysis rather than a realistic deployment threat model. It is valuable for auditing, but it should not be interpreted as a practical attacker capability in live forecasting systems.
+
+Third, we evaluate only three datasets rather than all five used in the reference paper. This was a compute and project-scope decision. The cross-dataset variability we observed suggests that even broader evaluation would be useful.
+
+Fourth, our architectural comparison is intentionally controlled and simple. We do not claim to cover the full design space of time series transformers. A larger study could include more encoder-only, decoder-only, and hybrid architectures.
+
+Finally, we do not propose a full defense. Our project began with the idea that structural architecture choices might act as a cheap defense, but our results do not support that hypothesis. This negative result is still useful, because it narrows the search space for future mitigation work.
+
+\subsection{Future Work}
+There are several natural next steps. The first is to evaluate preprocessing-based and anomaly-detection-based defenses, which are also suggested in the reference paper as more practical than adversarial training. The second is to add transfer-based attacks and surrogate-model attacks, which may offer a middle ground between realistic black-box constraints and oracle evaluation. The third is to test whether confidence estimation or forecast uncertainty can help detect manipulated inputs before forecasting.
+
+\section{Conclusion}
+This project extends the reference paper of Liu et al.\ by turning black-box adversarial evaluation into a reproducible auditing workflow and by testing whether architectural substitution improves robustness. We find that the answer is no in our setting. Weak target-matching attacks have negligible effect, but stronger oracle-error black-box attacks increase forecasting error across ETTh1, Weather, and Exchange. The strongest vulnerability appears on Weather, while Exchange is comparatively resistant. Most importantly, joint transformers do not consistently outperform autoregressive transformers in adversarial resilience. These findings suggest that architecture alone is not an adequate defense, and that future work should focus on explicit robustness mechanisms rather than assuming that cleaner forecasting design automatically improves security.
+
+\begin{thebibliography}{9}
+
+\bibitem{garza2023timegpt}
+Azul Garza and Max Mergenthaler-Canseco.
+\newblock TimeGPT-1.
+\newblock 2023.
+
+\bibitem{gruver2024llmtime}
+Nate Gruver, Marc Finzi, Shikai Qiu, and Andrew Gordon Wilson.
+\newblock Large language models are zero-shot time series forecasters.
+\newblock In \emph{Advances in Neural Information Processing Systems}, 2024.
+
+\bibitem{jin2023timellm}
+Ming Jin, Shiyu Wang, Lintao Ma, Zhihang Yuan, and others.
+\newblock Time-LLM: Time series forecasting by reprogramming large language models.
+\newblock In \emph{International Conference on Learning Representations}, 2023.
+
+\bibitem{liu2024itransformer}
+Yong Liu, Haixu Wu, Jiehui Xu, and others.
+\newblock iTransformer: Inverted transformers are effective for time series forecasting.
+\newblock In \emph{International Conference on Learning Representations}, 2024.
+
+\bibitem{liu2025adversarial}
+Fuqiang Liu, Sicong Jiang, Luis Miranda-Moreno, Seongjin Choi, and Lijun Sun.
+\newblock Adversarial vulnerabilities in large language models for time series forecasting.
+\newblock In \emph{Proceedings of the 28th International Conference on Artificial Intelligence and Statistics}, 2025.
+
+\bibitem{wu2023timesnet}
+Haixu Wu, Tengge Hu, Yong Liu, Hang Zhou, Jianmin Wang, and Mingsheng Long.
+\newblock TimesNet: Temporal 2D-variation modeling for general time series analysis.
+\newblock In \emph{International Conference on Learning Representations}, 2023.
+
+\end{thebibliography}
+
+\end{document}

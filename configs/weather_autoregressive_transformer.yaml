@@ -1,0 +1,46 @@
+experiment:
+  name: weather_autoregressive_transformer
+  seed: 7
+  output_dir: outputs
+
+dataset:
+  source: csv
+  path: data/weather.csv
+  time_column: date
+  feature_columns: null
+  context_length: 96
+  horizon: 48
+  split: [0.5, 0.25, 0.25]
+  stride: 1
+  normalize: true
+  max_train_samples: null
+  max_eval_samples: 128
+
+model:
+  kind: autoregressive_transformer
+  params:
+    d_model: 64
+    n_heads: 4
+    num_layers: 2
+    ff_dim: 128
+    dropout: 0.1
+    epochs: 15
+    batch_size: 32
+    lr: 0.001
+
+attack:
+  enabled: true
+  kind: dga
+  max_samples: 32
+  steps: 8
+  directions_per_step: 4
+  probe_scale: 0.01
+  step_size: 0.02
+  epsilon: 0.02
+  epsilon_relative_to: mean_abs_input
+  norm: l1
+  target_mode: gwn
+  target_source: input
+  loss: mae
+  seed: 7
+
