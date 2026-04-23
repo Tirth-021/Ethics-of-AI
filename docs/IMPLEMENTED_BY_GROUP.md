@@ -31,10 +31,10 @@ This file is included to satisfy the assignment requirement that the repository 
 
 Replace the placeholders below with the actual group member names before submission.
 
-- `Person 1`: Led project coordination, attack-pipeline integration, experiment orchestration, and final synthesis of results across datasets.
-- `Person 2`: Managed dataset preparation, benchmark setup, YAML configuration updates, and execution of the main training and attack runs.
-- `Person 3`: Worked on evaluation logic, metric analysis, interpretability outputs, and comparative analysis of autoregressive versus joint robustness.
-- `Person 4`: Focused on report writing, related-work and methodology documentation, presentation preparation, and final project packaging.
+- `Tirth Bhatt`: Led project coordination, attack-pipeline integration, experiment orchestration, and final synthesis of results across datasets.
+- `Arka Dutta`: Managed dataset preparation, benchmark setup, YAML configuration updates, and execution of the main training and attack runs.
+- `Akhil Maan`: Worked on evaluation logic, metric analysis, interpretability outputs, and comparative analysis of autoregressive versus joint robustness.
+- `Jaya Prakash Kolla`: Focused on report writing, related-work and methodology documentation, presentation preparation, and final project packaging.
 
 ## Collaboration Note
 
