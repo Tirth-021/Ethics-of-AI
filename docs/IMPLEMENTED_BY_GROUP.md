@@ -41,3 +41,15 @@ This repository is best understood as:
 
 It is not presented as a full reproduction of every model in the baseline literature.
 
+## Suggested Group Contribution Breakdown
+
+Replace the placeholders below with the actual group member names before submission.
+
+- Tirth Bhatt: Led project coordination, attack-pipeline integration, experiment orchestration, and final synthesis of results across datasets.
+- Arka Dutta: Managed dataset preparation, benchmark setup, YAML configuration updates, and execution of the main training and attack runs.
+- Akhil Maan: Worked on evaluation logic, metric analysis, interpretability outputs, and comparative analysis of autoregressive vs joint robustness.
+- Jaya Prakash Kolla: Focused on report writing, related-work and methodology documentation, presentation/demo preparation, and final project packaging.
+
+## Collaboration Note
+
+- All four group members discussed the research question, reviewed experiment outputs jointly, contributed to the interpretation of results, and participated in the final presentation and submission.

@@ -1,0 +1,46 @@
+experiment:
+  name: exchange_joint_oracle_strong
+  seed: 7
+  output_dir: outputs
+
+dataset:
+  source: csv
+  path: data/exchange_rate.csv
+  time_column: date
+  feature_columns: null
+  context_length: 96
+  horizon: 48
+  split: [0.5, 0.25, 0.25]
+  stride: 1
+  normalize: true
+  max_train_samples: null
+  max_eval_samples: 128
+
+model:
+  kind: joint_transformer
+  params:
+    d_model: 64
+    n_heads: 4
+    num_layers: 2
+    ff_dim: 128
+    dropout: 0.1
+    epochs: 15
+    batch_size: 32
+    lr: 0.001
+
+attack:
+  enabled: true
+  kind: dga
+  objective: oracle_error
+  max_samples: 16
+  steps: 20
+  directions_per_step: 16
+  probe_scale: 0.005
+  step_size: 0.01
+  epsilon: 0.10
+  epsilon_relative_to: absolute
+  norm: linf
+  target_mode: gwn
+  target_source: input
+  loss: mse
+  seed: 7

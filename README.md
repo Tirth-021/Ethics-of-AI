@@ -135,6 +135,14 @@ Each run creates a dedicated directory under `outputs/` containing:
 - `per_sample_metrics.csv`: sample-level clean vs attacked results
 - `resolved_config.yaml`: the exact config used
 
+If attacks are enabled, runs now also create `outputs/<run>/interpretability/` with:
+
+- `horizon_error_profile.csv`: error increase at each forecast step
+- `input_block_sensitivity.csv`: per-sample block masking effects
+- `input_block_sensitivity_summary.csv`: average block sensitivity
+- `representative_forecasts.csv`: representative clean vs attacked traces
+- `summary.md`: interpretability-oriented summary text
+
 ## Attack Design
 
 The implemented attack is a **DGA-style targeted black-box attack**:
@@ -147,9 +155,7 @@ The implemented attack is a **DGA-style targeted black-box attack**:
 
 ## What The Group Implemented
 
-See [IMPLEMENTED_BY_GROUP.md](docs/IMPLEMENTED_BY_GROUP.md).
-
-That file is meant to make the submission boundary explicit for the course staff.
+See [IMPLEMENTED_BY_GROUP.md](docs/IMPLEMENTED_BY_GROUP.md). It contains the scope of this project and responsibilities of each member
 
 ## Suggested Submission Checklist
 
@@ -166,9 +172,6 @@ That file is meant to make the submission boundary explicit for the course staff
 - No external API model is bundled, because reproducibility and credentials vary.
 - Attack success on real benchmarks still depends on dataset choice, tuning, and available
   compute.
-
-That is okay for the assignment as long as the report states the scope honestly and the
-tool demonstrates novelty through the attack/audit workflow and architecture comparison.
 
 ## Dataset Sources
 

@@ -68,12 +68,22 @@ class EvaluationConfig:
 
 
 @dataclass
+class InterpretabilityConfig:
+    enabled: bool = True
+    samples: int = 8
+    input_blocks: int = 4
+    representative_samples: int = 3
+    mask_strategy: str = "input_mean"
+
+
+@dataclass
 class FullConfig:
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     attack: AttackConfig = field(default_factory=AttackConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    interpretability: InterpretabilityConfig = field(default_factory=InterpretabilityConfig)
 
 
 def _merge_dataclass(dataclass_type: type, payload: dict[str, Any] | None):
@@ -90,6 +100,7 @@ def load_config(path: str | Path) -> FullConfig:
         model=_merge_dataclass(ModelConfig, raw.get("model")),
         attack=_merge_dataclass(AttackConfig, raw.get("attack")),
         evaluation=_merge_dataclass(EvaluationConfig, raw.get("evaluation")),
+        interpretability=_merge_dataclass(InterpretabilityConfig, raw.get("interpretability")),
     )
 
 

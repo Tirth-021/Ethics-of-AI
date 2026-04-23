@@ -14,6 +14,10 @@ from llm_ts_audit.attacks.objectives import objective_direction
 from llm_ts_audit.config import FullConfig, save_config
 from llm_ts_audit.data.loading import PreparedDataset, load_prepared_dataset
 from llm_ts_audit.evaluation.metrics import summarize_regression
+from llm_ts_audit.interpretability.analysis import (
+    AttackInterpretabilityBundle,
+    generate_interpretability_outputs,
+)
 from llm_ts_audit.models.factory import build_model
 
 
@@ -82,6 +86,8 @@ def _evaluate_and_save(
     attack_count = min(config.attack.max_samples, len(test_inputs))
     objective_goal = objective_direction(config.attack.objective)
     attacked_records: list[dict[str, float | int]] = []
+    attacked_clean_inputs: list[np.ndarray] = []
+    attacked_adv_inputs: list[np.ndarray] = []
     attacked_targets: list[np.ndarray] = []
     attacked_clean_predictions: list[np.ndarray] = []
     attacked_adv_predictions: list[np.ndarray] = []
@@ -97,6 +103,8 @@ def _evaluate_and_save(
         y_true = test_targets[idx]
         clean_metrics = summarize_regression(y_true, result.clean_prediction)
         adv_metrics = summarize_regression(y_true, result.adversarial_prediction)
+        attacked_clean_inputs.append(test_inputs[idx])
+        attacked_adv_inputs.append(result.adversarial_input)
         attacked_targets.append(y_true)
         attacked_clean_predictions.append(result.clean_prediction)
         attacked_adv_predictions.append(result.adversarial_prediction)
@@ -125,6 +133,8 @@ def _evaluate_and_save(
         )
 
     attacked_targets_array = np.stack(attacked_targets)
+    attacked_clean_inputs_array = np.stack(attacked_clean_inputs)
+    attacked_adv_inputs_array = np.stack(attacked_adv_inputs)
     attacked_clean_predictions_array = np.stack(attacked_clean_predictions)
     attacked_adv_predictions_array = np.stack(attacked_adv_predictions)
 
@@ -151,6 +161,21 @@ def _evaluate_and_save(
             (per_sample_frame["adv_whiteness"] - per_sample_frame["clean_whiteness"]).mean()
         ),
     }
+
+    if config.interpretability.enabled:
+        summary["interpretability"] = generate_interpretability_outputs(
+            config=config.interpretability,
+            model=model,
+            output_dir=output_dir,
+            bundle=AttackInterpretabilityBundle(
+                clean_inputs=attacked_clean_inputs_array,
+                adversarial_inputs=attacked_adv_inputs_array,
+                targets=attacked_targets_array,
+                clean_predictions=attacked_clean_predictions_array,
+                adversarial_predictions=attacked_adv_predictions_array,
+                per_sample_metrics=per_sample_frame,
+            ),
+        )
     return summary
 
 
@@ -190,6 +215,22 @@ def _render_summary_markdown(summary: dict[str, object]) -> str:
                 f"- Avg attacked objective value: `{attack['average_adv_objective_value']:.6f}`",
                 f"- Avg query count: `{attack['average_query_count']:.2f}`",
                 f"- Avg whiteness shift: `{attack['average_whiteness_shift']:.6f}`",
+            ]
+        )
+    if "interpretability" in summary:
+        interpretability = summary["interpretability"]
+        horizon = interpretability["horizon"]
+        sensitivity = interpretability["input_sensitivity"]
+        lines.extend(
+            [
+                "",
+                "## Interpretability",
+                f"- Horizon pattern: {horizon['pattern']}",
+                f"- Positive attacked-vs-clean MSE steps: `{horizon['positive_mse_steps']}` / `{horizon['total_steps']}`",
+                f"- Most sensitive input block: `{sensitivity['most_sensitive_block_index']}`",
+                f"- Sensitive context range: `{sensitivity['most_sensitive_context_start']}` to `{sensitivity['most_sensitive_context_end']}`",
+                f"- Representative samples: `{interpretability['representative_samples']}`",
+                "- Saved interpretability files under `interpretability/`",
             ]
         )
     return "\n".join(lines) + "\n"
